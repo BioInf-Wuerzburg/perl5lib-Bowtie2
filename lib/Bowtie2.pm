@@ -296,12 +296,12 @@ sub bowtie2 {
 	# let open3 do its magic :)	
 	use Symbol 'gensym'; 
 	$self->{_stderr} = gensym;
+        $VB->verbose(($self->path ? $self->path.'/'.$self->{bowtie2_bin} : $self->{bowtie2_bin})." ".($self->opt2string("bowtie2")));
 	$self->{_pid} = open3(
 		$self->{_stdin},
 		$self->{_stdout},
 		$self->{_stderr},
-		$self->path ? $self->path.'/'.$self->{bowtie2_bin} : $self->{bowtie2_bin},
-		$self->opt2string("bowtie2")
+		($self->path ? $self->path.'/'.$self->{bowtie2_bin} : $self->{bowtie2_bin})." ".$self->opt2string("bowtie2")
 	);
 	
 	$self->{_status} = "running bowtie2";
@@ -390,6 +390,7 @@ sub cancel {
 #		$pid." doesnt exist -> probably already finished\n");
 	};
 
+        $V->verbose($msg || "Bowtie2 run canceled");
 }
 
 
