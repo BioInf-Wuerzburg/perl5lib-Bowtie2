@@ -9,14 +9,17 @@ use File::Temp;
 use Data::Dumper;
 
 use IPC::Open3;
+use IPC::Run qw(harness pump finish start);
 
-# preference libs in same folder over @INC
-use lib './';
+use Log::Log4perl qw(:no_extra_logdie_message);
 
-use Verbose;
+
+#-----------------------------------------------------------------------------#
+# Globals
 
 our $VERSION = '0.02';
 
+my $L = Log::Log4perl::get_logger();
 
 $|++;
 
@@ -75,22 +78,9 @@ Bowtie2 interface.
 
 =cut
 
-=head2 $V
 
-Verbose messages are handled using the Verbose.pm module. To 
- customize verbose message behaviour, overwrite the attribute with
- another Verbose object created with the Verbose module.
 
-=cut
-
-our $V = Verbose->new(
-	format => "[{TIME_SHORT}] [Bowtie2] {MESSAGE}\n"
-);
-
-our $VB = Verbose->new(
-	line_delim => "\\\n",
-	line_width => 80
-);
+##------------------------------------------------------------------------##
 
 =head1 Class METHODS
 
@@ -246,7 +236,6 @@ sub bowtie2 {
 	# let open3 do its magic :)	
 	use Symbol 'gensym'; 
 	$self->{_stderr} = gensym;
-        $VB->verbose(($self->path ? $self->path.'/'.$self->{bowtie2_bin} : $self->{bowtie2_bin})." ".($self->opt2string("bowtie2")));
 	$self->{_pid} = open3(
 		$self->{_stdin},
 		$self->{_stdout},
@@ -339,14 +328,12 @@ sub cancel {
 		# TODO: cancel pid does not exist
 #		$pid." doesnt exist -> probably already finished\n");
 	};
-
-        $V->verbose($msg || "Bowtie2 run canceled");
 }
 
 
 sub check_binaries{
     my ($self) = @_;
-
+    
 }
 
 
@@ -483,7 +470,6 @@ sub _timeout {
 		# set sleep time to never be higher than timeout, but maximal 2 seconds
 		$self->{_sleep} = $self->{timeout} < 2 ? $self->{timeout} : 2;
 	}
-	$V->verbose('timeout of '.$self->{timeout}.'s activated');
 	while(my $pid = kill ('0', $self->{ _pid}) ){ 
 		if($time > $self->{timeout}){
 			$self->cancel( 'Canceled by timeout '.$self->{timeout}."s" );
