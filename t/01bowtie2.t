@@ -4,6 +4,7 @@ use strict;
 use warnings;
 
 use Test::More;
+use Test::Deep;
 use Data::Dumper;
 
 use FindBin qw($RealBin);
@@ -39,8 +40,8 @@ if(-e $Dat_file){
 }
 
 if(-e $Dmp_file){
-	# eval <file>.dump
-	@Dmp{qw(sh1)} = do "$Dmp_file"; # read and eval the dumped structure
+    # eval <file>.dump
+    %Dmp = do "$Dmp_file"; # read and eval the dumped structure
 }
 
 
@@ -55,7 +56,14 @@ if(-e $Dmp_file){
 
 =cut
 
-
+my $o;
+my $t = 'new object';
+subtest $t => sub{
+    $o = new_ok($Class);
+    cmp_deeply($o, $Dmp{$t}, $t);
+    my $o2 = $o->new;
+    cmp_deeply($o2, $o, 'new clone');
+};
 
 
 

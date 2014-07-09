@@ -1,0 +1,5 @@
+'new object' => bless( {
+                 'bowtie2_build_bin' => 'bowtie2-build',
+                 'path' => '',
+                 'bowtie2_bin' => 'bowtie2'
+               }, 'Bowtie2' ),

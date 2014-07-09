@@ -15,7 +15,7 @@ use lib './';
 
 use Verbose;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 
 $|++;
@@ -37,11 +37,20 @@ Bowtie2 interface.
   use Bowtie2;
   
   my $bowtie2 = Bowtie2->new(
-    ref => 'genome.fa'
-    reads => 'reads.fa'
+    path => 'path/to/bowtie2/bin/'   # unless exported
   );
   
-  my $bowtie2->bowtie2;
+  $bowtie2->bowtie2_build("genome.fa");
+  
+  $bowtie2->bowtie2(qw( # bowtie2 parameter
+      -x genome.fa
+      -1 reads_1.fq
+      -2 reads_2.fq
+    ),
+    { # perl module specific arguments
+       ??
+    }
+  );
   
   # read output on the fly
   use Sam::Parser;
@@ -55,16 +64,6 @@ Bowtie2 interface.
   
   $bowtie2->finish;
 
-
-=cut
-
-=head1 CHANGELOG
-
-head2 0.01
-
-=item [INIT] Provides Constructor and generic accessor and run methods.
-
-=back
 
 =cut
 
@@ -97,43 +96,6 @@ our $VB = Verbose->new(
 
 =cut
 
-=head2 Param_join (HASHREF, JOIN=STRING)
-
-Joins a HASHREF to a parameter string with JOIN [" "], ignoring keys with 
- undef values and creating flag only values for ''.
-
-  Bowtie2->Param_join(HASHREF); # join with space
-  Bowtie2->Param_join(HASHREF, join => "\n") # join with newline
-
-=cut
-
-sub Param_join{
-	my $proto = shift;
-	my $params = shift @_;
-	my $p = {
-		'join' => " ",
-		'ignore' => [],
-		@_
-	};
-	
-	my %ignore;
-	@ignore{@{$p->{ignore}}} = (1)x scalar @{$p->{ignore}}
-		if @{$p->{ignore}};
-	# params
-	my @params;
-	my $paramstring;
-	foreach my $k (sort keys %$params){
-		next if exists $ignore{$k};
-		my $v = $params->{$k};
-		# flag only is '', NOT '0' !!!
-		next unless defined ($v);
-		push @params, ($v ne '') ? ($k, $v) : $k;
-	}
-	$paramstring .= join($p->{'join'}, @params);
-	return $paramstring;
-}
-
-
 
 
 ##------------------------------------------------------------------------##
@@ -143,64 +105,50 @@ sub Param_join{
 
 =head2 new
 
-  out => 'FILE'    # file argument to write data to. If specified, 
-                   #  the output can not be read on the fly and the run cannot be 
-                   #  canceled manually or by timeout. Still a filehandle to read
-                   #  the complete result is provided, after the run has finished.
-  log => 'FILE'    # A file to write the log to, defaults to 'bowtie2XXXXX.log', 
-                   #  with X being random numbers
-  verbose => BOOL  # Default TRUE
-  timeout => INT   # Number of seconds before canceling run by timeout
-  bin => 'bowtie2'
-                   # use explicit path, in case bowtie2 cannot be found in
-                   #  the path, use bowtie2 -C for color space
-  ref => [FILE, FILE,...]
-                   # file or list of files containing reference sequences
-  reads => 'FILE'  # file containing short reads
-  mates => 'FILE'  # file containing mate reads in case paired mapping is performed
 
 
+
+Usage: 
+  bowtie2 [options] -x <bt2-idx> {-1 <m1> -2 <m2> | -U <r>} [-S <sam>]
+
+  <bt2-idx>  Index filename prefix (minus trailing .X.bt2).
+             NOTE: Bowtie 1 and Bowtie 2 indexes are not compatible.
+  <m1>       Files with #1 mates, paired with files in <m2>.
+             Could be gzip'ed (extension: .gz) or bzip2'ed (extension: .bz2).
+  <m2>       Files with #2 mates, paired with files in <m1>.
+             Could be gzip'ed (extension: .gz) or bzip2'ed (extension: .bz2).
+  <r>        Files with unpaired reads.
+             Could be gzip'ed (extension: .gz) or bzip2'ed (extension: .bz2).
+  <sam>      File for SAM output (default: stdout)
+
+  <m1>, <m2>, <r> can be comma-separated lists (no whitespace) and can be
+  specified many times.  E.g. '-U file1.fq,file2.fq -U file3.fq'.
 
 
 =cut
 
 
 sub new {
-	my ($class) = shift;
-    
-	my $self = {
-		# defaults
-		bowtie2_bin => 'bowtie2',
-		bowtie2_opt => {},
-		bowtie2_build_bin => 'bowtie2-build',
-		bowtie2_build_opt => {},
-		path => '',
-		verbose => 1,
-		timeout => 0,
-		'ref' => undef,
-		'pre' => undef,
-		'-x' => undef,
-		'-1' => undef,
-		'-2' => undef,
-		'-U' => undef,
-		'-S' => undef,
-		# overwrites
-		@_,
-		# "protected"
-		_status => 'initialized',
-		_pid => undef,
-		_timeout_pid => undef,
-		_stdin => undef,
-		_stdout => undef,
-		_stderr => undef,
-		# protected privates
-	};
 
-	$V->{report_level} = $self->{verbose};
-    # use defaults of called subClass 
-    bless $self, $class;	
+    my $proto = shift;
+    my $self;
+    my $class;
     
-    return $self;
+    # object method -> clone + overwrite
+    if($class = ref $proto){ 
+	return bless ({%$proto, @_}, $class);
+    }
+
+    # class method -> construct + overwrite
+    # init empty obj
+    $self = {
+	path => '',
+	bowtie2_bin => 'bowtie2',
+	bowtie2_build_bin => 'bowtie2-build',
+	@_
+    };
+    
+    return bless $self, $proto;
 }
 
 
