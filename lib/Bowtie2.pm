@@ -47,15 +47,20 @@ Bowtie2 interface.
   
   $bowtie2->build("genome.fa");
   
+  # bowtie2 to file, finish() is important!
+  $bowtie2->run(qw(
+    -x genome.fa
+    -1 reads_1.fq
+    -2 reads_2.fq
+    -S out.sam
+  ))->finish();
+
+  # bowtie2 with reading stdout on-the-fly
   $bowtie2->run(qw( # bowtie2 parameter
-      -x genome.fa
-      -1 reads_1.fq
-      -2 reads_2.fq
-    ),
-    { # perl module specific arguments
-       ??
-    }
-  );
+    -x genome.fa
+    -1 reads_1.fq
+    -2 reads_2.fq
+  ));
   
   # read output on the fly
   use Sam::Parser;
@@ -63,12 +68,11 @@ Bowtie2 interface.
     fh => $bowtie2->stdout
   );
   
+  # do something with the output
   while(my $aln = $sp->next_aln()){
-    # do something with the output
 
     # and maybe stop the run midways  
     $bowtie2->cancel 
-
   }
  
   # wait for the run to finish  
@@ -159,9 +163,10 @@ sub DESTROY{
 =head2 build
 
 Create a bowtie2 index for a given reference. For convenience, the
-index prefix defaults to the basename of the reference genome file.
+index prefix defaults to the reference genome file.
 
-  $bowtie2->build("Genome.fa", "Genome-index-prefix);
+  $bowtie2->build("Genome.fa");
+  $bowtie2->build("Genome.fa", "Genome-index-prefix");
 
 =cut
 
@@ -219,7 +224,7 @@ sub build{
 
 =head2 run
 
-Run bowtie2 as background process.
+Submit a bowtie2 run.
 
   $bowtie2->run(qw(-x Genome.fa -1 read_1.fq -2 read_2.fq ...));
 
@@ -282,10 +287,9 @@ sub run{
 
 =head2 finish
 
-Public Method. Waits for the finishing/canceling of a 
- started bowtie2 run. Checks for errors, removes tempfiles.
+Waits for the finishing/canceling of a started bowtie2 run.
 
-  my $bowtie2->finish;
+  $bowtie2->finish;
 
 =cut
 
@@ -329,12 +333,12 @@ sub finish{
 
 =head2 cancel
 
-Public Method. Cancels a running bowtie2 run based on a passed query process id 
-or the internally stored process id of the bowtie2 object;
+Cancels a running bowtie2 run based on a passed query process id or
+the internally stored process id of the bowtie2 object;
 
-  my $bowtie2->cancel(<message>);
+  $bowtie2->cancel(<message>);
   
-  Bowtie2->cancel([pid, pid,...], <message>);
+  Bowtie2->cancel(<pid>, <message>);
 
 =cut
 
@@ -377,6 +381,12 @@ sub cancel {
 }
 
 
+=head2 check_binaries
+
+Test whether binaries are exported and/or existent and executable.
+
+=cut
+
 sub check_binaries{
     my ($self) = @_;
     my $bin = $self->path ? $self->bowtie2_bin : which($self->bowtie2_bin);
@@ -393,22 +403,6 @@ sub check_binaries{
 =head1 Accessor METHODS
 
 =cut
-
-=head2 opt2string
-
-Get a stringified version of the specified parameter for a command.
-
-  $bowtie2_opt = $self->opt2string("bowtie2");
-  $bowtie2_build_opt = $self->opt2string("bowtie2_build");
-  
-
-=cut
-
-sub opt2string{
-	my ($self, $cmd, @more) = @_;
-	die("unknown command") unless exists $self->{$cmd.'_opt'};
-	return Bowtie2->Param_join($self->{$cmd.'_opt'}, @more) || '';
-}
 
 =head2 path
 
@@ -456,12 +450,23 @@ sub stdout{
 	return $self->{_stdout};
 }
 
+=head2 bowtie2_bin
+
+Get the full path to the bowtie2 binary.
+
+=cut
+
  
 sub bowtie2_bin{
 	my ($self) = @_;
 	return File::Spec->catfile($self->{path} || (), $self->{bowtie2_bin});
 }
 
+=head2 bowtie2_build_bin
+
+Get the full path to the bowtie2-build binary.
+
+=cut
 
 sub bowtie2_build_bin{
 	my ($self) = @_;
