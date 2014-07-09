@@ -148,6 +148,8 @@ sub new {
 	@_
     };
     
+    
+
     return bless $self, $proto;
 }
 
@@ -342,6 +344,12 @@ sub cancel {
 }
 
 
+sub check_binaries{
+    my ($self) = @_;
+
+}
+
+
 ##------------------------------------------------------------------------##
 
 =head1 Accessor METHODS
@@ -443,6 +451,17 @@ sub logh{
 	return $self->{_error_reader};
 }
 
+
+sub bowtie2_bin{
+	my ($self) = @_;
+	return $self->{path}.'/'.$self->{bowtie2_bin};
+}
+
+
+sub bowtie2_build_bin{
+	my ($self) = @_;
+	return $self->{path}.'/'.$self->{bowtie2_build_bin};
+}
 
 ##------------------------------------------------------------------------##
 
