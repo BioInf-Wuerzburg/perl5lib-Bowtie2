@@ -39,6 +39,7 @@ my $Class = 'Bowtie2';
 (my $Dat_file = $FindBin::RealScript) =~ s/t$/dat/; # data
 (my $Dmp_file = $FindBin::RealScript) =~ s/t$/dmp/; # data structure dumped
 (my $Tmp_file = $FindBin::RealScript) =~ s/t$/tmp/; # data structure dumped
+(my $pre = $FindBin::RealScript) =~ s/.t$//; # data structure dumped
 
 my ($Dat, %Dat, %Dmp);
 
@@ -74,7 +75,35 @@ subtest $t => sub{
     cmp_deeply($o2, $o, 'new clone');
 };
 
+$t = 'bowtie2-build';
+subtest $t => sub{
+    unlink glob $pre.'_ref.fa.*.bt2'; # remove old indices
+    $o->build($pre.'_ref.fa');
+    ok(-e $pre.'_ref.fa.1.bt2', "building index");
+};
 
+$t = 'bowtie2';
+subtest $t => sub{
+    unlink glob $pre.'_ref.sam'; # remove old files
+    $o->run(
+	-x => $pre.'_ref.fa',
+	-1 => $pre.'_reads.fq.gz',
+	-2 => $pre.'_reads.fq.gz',
+	-S => $pre.'.sam',
+	)->finish();
+    ok(-e $pre.'.sam', "mapping paired to file");
+
+    $o->run(
+	-x => $pre.'_ref.fa',
+	-U => $pre.'_reads.fq.gz',
+	);
+
+    my $so = $o->stdout;
+    is(scalar <$so>, '@HD	VN:1.0	SO:unsorted'."\n", "mapping single, reading on-the-fly");
+
+    $o->finish;
+
+};
 
 
 

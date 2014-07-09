@@ -45,9 +45,9 @@ Bowtie2 interface.
     path => 'path/to/bowtie2/bin/'   # unless exported
   );
   
-  $bowtie2->bowtie2_build("genome.fa");
+  $bowtie2->build("genome.fa");
   
-  $bowtie2->bowtie2(qw( # bowtie2 parameter
+  $bowtie2->run(qw( # bowtie2 parameter
       -x genome.fa
       -1 reads_1.fq
       -2 reads_2.fq
@@ -60,14 +60,20 @@ Bowtie2 interface.
   # read output on the fly
   use Sam::Parser;
   my $sp = Sam::Parser->new(
-    fh => $bowtie2->oh
+    fh => $bowtie2->stdout
   );
   
   while(my $aln = $sp->next_aln()){
     # do something with the output
+
+    # and maybe stop the run midways  
+    $bowtie2->cancel 
+
   }
-  
-  $bowtie2->finish;
+ 
+  # wait for the run to finish  
+  $bowtie2->finish; 
+
 
 
 =cut
@@ -94,33 +100,16 @@ Bowtie2 interface.
 
 =head1 Constructor METHOD
 
-
 =head2 new
 
-
-
-
-Usage: 
-  bowtie2 [options] -x <bt2-idx> {-1 <m1> -2 <m2> | -U <r>} [-S <sam>]
-
-  <bt2-idx>  Index filename prefix (minus trailing .X.bt2).
-             NOTE: Bowtie 1 and Bowtie 2 indexes are not compatible.
-  <m1>       Files with #1 mates, paired with files in <m2>.
-             Could be gzip'ed (extension: .gz) or bzip2'ed (extension: .bz2).
-  <m2>       Files with #2 mates, paired with files in <m1>.
-             Could be gzip'ed (extension: .gz) or bzip2'ed (extension: .bz2).
-  <r>        Files with unpaired reads.
-             Could be gzip'ed (extension: .gz) or bzip2'ed (extension: .bz2).
-  <sam>      File for SAM output (default: stdout)
-
-  <m1>, <m2>, <r> can be comma-separated lists (no whitespace) and can be
-  specified many times.  E.g. '-U file1.fq,file2.fq -U file3.fq'.
-
+  my $bowtie2 = Bowtie2->new(
+    path => 'path/to/bowtie2/bin/'   # unless exported
+  );
 
 =cut
 
 
-sub new {
+sub new{
 
     $L->debug("initiating object");
 
@@ -139,7 +128,12 @@ sub new {
 	path => '',
 	bowtie2_bin => 'bowtie2',
 	bowtie2_build_bin => 'bowtie2-build',
-	@_
+	@_,
+	_stdin => undef,
+	_stdout => undef,
+	_stderr => undef,
+	_status => 'initiated',
+	_pid => undef,
     };
 
     bless $self, $proto;    
@@ -162,107 +156,115 @@ sub DESTROY{
 
 =head1 Public METHODS
 
-=head2 run
+=head2 build
 
-Start bowtie2 run with parameters provided to new method. Returns bowtie2 object.
+Create a bowtie2 index for a given reference. For convenience, the
+index prefix defaults to the basename of the reference genome file.
 
-  my $bowtie2 = $bowtie2->run;
+  $bowtie2->build("Genome.fa", "Genome-index-prefix);
 
 =cut
 
-sub bowtie2_build {
-	my $self = shift;
-	
-	my $p = {
-		# "globals"
-		'ref' => $self->{ref},
-		'pre' => $self->{pre},
-		# bowtie2_build specific
-		%{$self->{bowtie2_build_opt}},
-		# custom overwrite
-		@_
-	};
-	
-	# store the overwritten bowtie2_build opts - this looks somehow dangerous
-	$self->{bowtie2_build_opt} = $p; 
+sub build{
+    my $self = shift;
+    
+    # overwrite global settings
+    $self = {%$self , %{pop @_}} if ref $_[-1] eq "HASH";
 
-	die("Current status '".$self->status()."'. 'finish' prior to any other new action")
-		if $self->status =~ /^running/;
+    # process paramater
+    my @p=@_ == 1 ? (@_) x 2 : @_;
 
-	my $opts = $self->opt2string("bowtie2_build", ignore=>[qw(ref pre)]);
-	
-	# let open3 do its magic :)	
-	use Symbol 'gensym'; 
-	$self->{_stderr} = gensym;
-	$self->{_pid} = open3(
-		$self->{_stdin},
-		$self->{_stdout},
-		$self->{_stderr},
-		$self->path ? $self->path.'/'.$self->{bowtie2_build_bin} : $self->{bowtie2_build_bin},
-		($opts ? $opts : ()),
-		$p->{ref},
-		$p->{pre}
+    # check status
+    $L->logdie("Current status '".$self->status()."'. 'finish' prior to any other new action")
+	if $self->status =~ /^running/;
+
+    # let open3 do its magic :)	
+    use Symbol 'gensym'; 
+    $self->{_stderr} = gensym;
+    $self->{_pid} = open3(
+	$self->{_stdin},
+	$self->{_stdout},
+	$self->{_stderr},
+	$self->bowtie2_build_bin,
+	@p
 	);
 
-	$self->{_status} = "running bowtie2_build";
+    $self->{_status} = "running bowtie2->build";
+    $L->debug($self->{_status});
+    
+    # wait for indexing to finish
+    waitpid($self->{_pid}, 0);
 
-	# fork timeout process to monitor the run and cancel it, if necessary
-	# child
-	if(!$self->{out} && $self->{timeout} && !( $self->{_timeout_pid} = fork()) ){
-		# fork error
-		if ( not defined $self->{_timeout_pid} ){ die "couldn't fork: $!\n"; }
-		$self->_timeout(); 
-		# childs exits either after timeout canceled blast or blast run has finished
-	}
-	# parent - simply proceeds
-	
-	return $self
+
+    # check for return status
+    my $e = $self->stderr;
+    my $o = $self->stdout;
+
+    if($?){
+	my $exitval = $? >> 8;
+	$self->{_status} =~ s/running/exited($exitval)/;
+	$L->info( <$o> );
+	$L->warn( <$e> );
+    }else{
+	# set status to 
+	$self->{_status} =~ s/running/finished/;
+	$L->info( <$o> );
+	$L->warn( <$e> );
+    }
+
+    $L->debug($self->{_status});
+
+    return $self
 }
 
-sub bowtie2 {
-	my $self = shift;
-		my $p = {
-		# "globals"
-		'-1' => $self->{'-1'},
-		'-2' => $self->{'-2'},
-		'-x' => $self->{'-x'},
-		'-S' => $self->{'-S'},
-		'-U' => $self->{'-U'},
-		# bowtie2_build specific
-		%{$self->{bowtie2_opt}},
-		# custom overwrite
-		@_
-	};
-	
-	# store the overwritten bowtie2_build opts - this looks somehow dangerous
-	$self->{bowtie2_opt} = $p; 
+=head2 run
 
-	die("Current status '".$self->status()."'. 'finish' prior to any other new action")
-		if $self->status =~ /^running/;
-		
-	# let open3 do its magic :)	
-	use Symbol 'gensym'; 
-	$self->{_stderr} = gensym;
-	$self->{_pid} = open3(
-		$self->{_stdin},
-		$self->{_stdout},
-		$self->{_stderr},
-		($self->path ? $self->path.'/'.$self->{bowtie2_bin} : $self->{bowtie2_bin})." ".$self->opt2string("bowtie2")
+Run bowtie2 as background process.
+
+  $bowtie2->run(qw(-x Genome.fa -1 read_1.fq -2 read_2.fq ...));
+
+=cut
+
+sub run{
+
+    my $self = shift;
+    
+    # overwrite global settings
+    $self = {%$self , %{pop @_}} if ref $_[-1] eq "HASH";
+
+    # process paramater
+
+    # check status
+    $L->logdie("Current status '".$self->status()."'. 'finish' prior to any other new action")
+	if $self->status =~ /^running/;
+
+    # let open3 do its magic :)	
+    use Symbol 'gensym'; 
+    $self->{_stderr} = gensym;
+    $self->{_pid} = open3(
+	$self->{_stdin},
+	$self->{_stdout},
+	$self->{_stderr},
+	$self->bowtie2_bin,
+	@_
 	);
+
+    $self->{_status} = "running bowtie2->run";
+    $L->debug($self->{_status});
+
 	
-	$self->{_status} = "running bowtie2";
-	
-	# fork timeout process to monitor the run and cancel it, if necessary
-	# child
-	if(!$self->{out} && $self->{timeout} && !( $self->{_timeout_pid} = fork()) ){
-		# fork error
-		if ( not defined $self->{_timeout_pid} ){ die "couldn't fork: $!\n"; }
-		$self->_timeout(); 
-		# childs exits either after timeout canceled blast or blast run has finished
-	}
-	# parent - simply proceeds
-	
-	return $self
+    # fork timeout process to monitor the run and cancel it, if necessary
+    # child
+    if(!$self->{out} && $self->{timeout} && !( $self->{_timeout_pid} = fork()) ){
+	# fork error
+	if ( not defined $self->{_timeout_pid} ){ die "couldn't fork: $!\n"; }
+	$self->_timeout(); 
+	# childs exits either after timeout canceled blast or blast run has finished
+    }
+    # parent - simply proceeds
+    
+    return $self
+
 }
 
 
@@ -276,32 +278,39 @@ Public Method. Waits for the finishing/canceling of a
 =cut
 
 sub finish{
-	my ($self) = @_; 
+    my ($self) = @_; 
 
-	unless (ref $self || ref $self ne "Bowtie2" ){
-		die "Bowtie2 not initialized!\n";
-	}
-	
-	
-	# to make sure, bowtie2 is finished, read its STDOUT until eof
-	unless($self->{out}){
-		my $tmp;
-		1 while read($self->{_stdout},$tmp,10000000);
-	}
+    unless (ref $self || ref $self ne "Bowtie2" ){
+	die "Bowtie2 not initialized!\n";
+    }
 
-	waitpid($self->{_pid}, 0);
-	
-	if($?){
-		unless($self->status =~ /^canceled/){ # set by cancel method
-			my $exitval = $? >> 8;
-			$self->{_status} =~ s/running/exited($exitval)/;
-		}
-	}else{
-		# set status to 
-		$self->{_status} =~ s/running/finished/;
-	}
+ 
+    # to make sure, bowtie2 is finished, read its STDOUT until eof
+    unless($self->{out}){
+    	my $tmp;
+    	1 while read($self->{_stdout},$tmp,10000000);
+    }
 
-	return $self;
+    waitpid($self->{_pid}, 0);
+    
+    # check for return status
+    my $e = $self->stderr;
+    my $o = $self->stdout;
+
+    if($?){
+	my $exitval = $? >> 8;
+	$self->{_status} =~ s/running/exited($exitval)/;
+	$L->info( <$o> );
+	$L->warn( <$e> );
+    }else{
+	# set status to 
+	$self->{_status} =~ s/running/finished/;
+	$L->info( <$o> );
+	$L->warn( <$e> );
+    }
+
+    $L->debug($self->{_status});
+    return $self;
 }
 
 
@@ -417,40 +426,7 @@ sub stdout{
 	return $self->{_stdout};
 }
 
-=head2 log_string
-
-Get the log of the run as STRING.
-
-=cut
-
-sub log_string{
-	my ($self) = @_;
-	return $self->{_error};
-}
-
-=head2 oh
-
-Get the output handle to read the output while generated by bowtie2
-
-=cut
-
-sub oh{
-	my ($self) = @_;
-	return $self->{_result_reader};
-}
-
-=head2 logh
-
-Get the log handle to read the log generated by bowtie2
-
-=cut
-
-sub logh{
-	my ($self) = @_;
-	return $self->{_error_reader};
-}
-
-
+ 
 sub bowtie2_bin{
 	my ($self) = @_;
 	return File::Spec->catfile($self->{path} || (), $self->{bowtie2_bin});

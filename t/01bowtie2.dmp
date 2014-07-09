@@ -1,5 +1,10 @@
-'new object' => bless( {
-                 'bowtie2_build_bin' => 'bowtie2-build',
-                 'path' => '',
-                 'bowtie2_bin' => 'bowtie2'
-               }, 'Bowtie2' ),
+'new object' => bless({
+         'bowtie2_build_bin' => 'bowtie2-build',
+    	 'path' => '',
+    	 'bowtie2_bin' => 'bowtie2',
+    	 _stdin => undef,
+    	 _stdout => undef,
+    	 _stderr => undef,
+    	 _status => 'initiated',
+    	 _pid => undef,
+   }, 'Bowtie2' ),
