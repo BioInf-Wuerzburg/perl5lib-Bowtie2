@@ -238,6 +238,19 @@ sub run{
     $L->logdie("Current status '".$self->status()."'. 'finish' prior to any other new action")
 	if $self->status =~ /^running/;
 
+    # Bowtie2 uses a perl wrapper that actually runs
+    # bowtie2-align. Killing the perl process, however, does not
+    # terminate the bowtie2 run, just leads to a <defunct> perl
+    # process. Therefore, all pids belonging to the bowtie2 run need
+    # to be determined and killed. This is achieved using the pgid and
+    # the associated list of pids. 
+
+    $L->debug($self->bowtie2_bin," ", "@_");
+    
+    # get pids of group before bowtie2
+    $self->{_pids} = [split("\n", qx( pgrep -g `ps -o pgid= -p $$` ))];
+    
+
     # let open3 do its magic :)	
     use Symbol 'gensym'; 
     $self->{_stderr} = gensym;
@@ -251,8 +264,7 @@ sub run{
 
     $self->{_status} = "running bowtie2->run";
     $L->debug($self->{_status});
-
-	
+    
     # fork timeout process to monitor the run and cancel it, if necessary
     # child
     if(!$self->{out} && $self->{timeout} && !( $self->{_timeout_pid} = fork()) ){
@@ -322,28 +334,46 @@ or the internally stored process id of the bowtie2 object;
 
   my $bowtie2->cancel(<message>);
   
-  Bowtie2->cancel(pid, <message>);
+  Bowtie2->cancel([pid, pid,...], <message>);
 
 =cut
 
 sub cancel {
-	my ($pid, $msg);
-	# object method
-	if(ref (my $me = shift)){
-		$pid = $me ->{_pid};
-		$me->{_status} =~ s/^\w+/canceled/;
 
-		$msg = shift;
-	}
-	# class method
-	else{
-		($pid, $msg) = @_;
-	}
-	
+    my ($pid, $msg);
+    my @apids = ();
+    # object method
+    if(ref (my $self = shift)){
+	$pid = $self ->{_pid};
+	$self->{_status} =~ s/^\w+/canceled/;
+	@apids=@{$self->{_pids}};
+	$msg = shift;
+    }
+    # class method
+    else{
+	($pid, $msg) = @_;
+    }
+    
+
+    # get pids of group with bowtie2
+    my @gpids = split("\n", qx( pgrep -g `ps -o pgid= -p $pid` ));
+
+    $L->debug("Pids before bowtie2: @apids}");    
+    $L->debug("Pids with bowtie2: @gpids");
+
+    my @kpids;
+    for my $p (@gpids){
+	push @kpids, $p if ! grep{$p eq $_}@apids; 
+    };
+
+    $L->debug("bowtie2 pids to kill: @kpids");
+
+    for my $pid (@kpids){
 	unless( kill ('1', $pid) ){
-		# TODO: cancel pid does not exist
-#		$pid." doesnt exist -> probably already finished\n");
+	    # TODO: cancel pid does not exist
+	    $L->debug($pid." doesnt exist -> probably already finished\n");
 	};
+    }
 }
 
 

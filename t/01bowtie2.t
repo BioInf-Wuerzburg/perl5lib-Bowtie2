@@ -99,8 +99,9 @@ subtest $t => sub{
 	);
 
     my $so = $o->stdout;
-    is(scalar <$so>, '@HD	VN:1.0	SO:unsorted'."\n", "mapping single, reading on-the-fly");
+    is(scalar <$so>, '@HD	VN:1.0	SO:unsorted'."\n", "mapping single, reading on-the-fly and cancel");
 
+    $o->cancel;
     $o->finish;
 
 };
