@@ -6,12 +6,14 @@ use strict;
 # $Id: Bowtie2.pm 55 2013-05-15 11:41:39Z s187512 $
 
 use File::Temp;
+use File::Spec;
+use File::Which;
 use Data::Dumper;
 
 use IPC::Open3;
-use IPC::Run qw(harness pump finish start);
+use IPC::Run qw(harness pump start);
 
-use Log::Log4perl qw(:no_extra_logdie_message);
+use Log::Log4perl qw(:easy :no_extra_logdie_message);
 
 
 #-----------------------------------------------------------------------------#
@@ -120,6 +122,8 @@ Usage:
 
 sub new {
 
+    $L->debug("initiating object");
+
     my $proto = shift;
     my $self;
     my $class;
@@ -137,10 +141,13 @@ sub new {
 	bowtie2_build_bin => 'bowtie2-build',
 	@_
     };
-    
-    
 
-    return bless $self, $proto;
+    bless $self, $proto;    
+    
+    $self->check_binaries;
+
+    return $self;
+
 }
 
 
@@ -333,7 +340,12 @@ sub cancel {
 
 sub check_binaries{
     my ($self) = @_;
-    
+    my $bin = $self->path ? $self->bowtie2_bin : which($self->bowtie2_bin);
+    $L->logdie('Cannot execute '.$self->bowtie2_bin) unless -e $bin && -x $bin;
+    my $bbin = $self->path ? $self->bowtie2_bin : which($self->bowtie2_build_bin);
+    $L->logdie('Cannot execute '.$self->bowtie2_build_bin) unless -e $bbin && -x $bbin;
+
+    $L->debug("Using binaries: $bin, $bbin");
 }
 
 
@@ -441,13 +453,13 @@ sub logh{
 
 sub bowtie2_bin{
 	my ($self) = @_;
-	return $self->{path}.'/'.$self->{bowtie2_bin};
+	return File::Spec->catfile($self->{path} || (), $self->{bowtie2_bin});
 }
 
 
 sub bowtie2_build_bin{
 	my ($self) = @_;
-	return $self->{path}.'/'.$self->{bowtie2_build_bin};
+	return File::Spec->catfile($self->{path} || (), $self->{bowtie2_build_bin});
 }
 
 ##------------------------------------------------------------------------##
